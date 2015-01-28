@@ -30,19 +30,19 @@ module RedisOrm
 
   class RecordNotFound < StandardError
   end
-  
+
   class TypeMismatchError < StandardError
   end
 
   class ArgumentsMismatch < StandardError
   end
-  
+
   class Base
     include ActiveModel::Validations
     include ActiveModelBehavior
     include Utils
     include Associations::HasManyHelper
-    
+
     extend Associations::BelongsTo
     extend Associations::HasMany
     extend Associations::HasOne
@@ -56,21 +56,21 @@ module RedisOrm
     @@use_uuid_as_id = {}
     @@descendants = []
     @@expire = Hash.new{|h,k| h[k] = {}}
-        
+
     class << self
 
       def inherited(from)
         [:after_save, :before_save, :after_create, :before_create, :after_destroy, :before_destroy].each do |callback_name|
           @@callbacks[from.model_name][callback_name] = []
         end
-        
+
         @@descendants << from
       end
-      
+
       def descendants
         @@descendants
       end
-      
+
       # *options* currently supports
       #   *unique* Boolean
       #   *case_insensitive* Boolean
@@ -85,7 +85,7 @@ module RedisOrm
           value = instance_variable_get(:"@#{property_name}")
 
           return nil if value.nil? # we must return nil here so :default option will work when saving, otherwise it'll return "" or 0 or 0.0
-          if /DateTime|Time/ =~ class_name.to_s            
+          if /DateTime|Time/ =~ class_name.to_s
             # we're using to_datetime here because to_time doesn't manage timezone correctly
             value.to_s.to_datetime rescue nil
           elsif Integer == class_name
@@ -98,7 +98,7 @@ module RedisOrm
             value
           end
         end
-    
+
         send(:define_method, "#{property_name}=".to_sym) do |value|
           if instance_variable_get(:"@#{property_name}_changes") && !instance_variable_get(:"@#{property_name}_changes").empty?
             initial_value = instance_variable_get(:"@#{property_name}_changes")[0]
@@ -110,11 +110,11 @@ module RedisOrm
           end
           instance_variable_set(:"@#{property_name}", value)
         end
-  
+
         send(:define_method, "#{property_name}_changes".to_sym) do
           instance_variable_get(:"@#{property_name}_changes")
         end
-        
+
         send(:define_method, "#{property_name}_changed?".to_sym) do
           instance_variable_get(:"@#{property_name}_changes").size > 1
         end
@@ -125,13 +125,13 @@ module RedisOrm
         if !instance_methods.include?(:created_at) && !instance_methods.include?(:"created_at=")
           property :created_at, Time
         end
-        
+
         #if !@@properties[model_name].detect{|p| p[:name] == :modified_at && p[:class] == "Time"}
         if !instance_methods.include?(:modified_at) && !instance_methods.include?(:"modified_at=")
           property :modified_at, Time
         end
       end
-      
+
       def expire(seconds, options = {})
         @@expire[model_name] = {:seconds => seconds, :options => options}
       end
@@ -140,7 +140,7 @@ module RedisOrm
         @@use_uuid_as_id[model_name] = true
         @@uuid = UUID.new
       end
-      
+
       def count
         $redis.zcard("#{model_name}:ids").to_i
       end
@@ -162,11 +162,11 @@ module RedisOrm
           find(:last, options)
         end
       end
-      
+
       def find_indices(properties, options = {})
         properties.map!{|p| p.to_sym}
         method = options[:first] ? :detect : :select
-        
+
         @@indices[model_name].send(method) do |models_index|
           if models_index[:name].is_a?(Array) && models_index[:name].size == properties.size
             # check the elements not taking into account their order
@@ -176,10 +176,10 @@ module RedisOrm
           end
         end
       end
-      
+
       def construct_prepared_index(index, conditions_hash)
         prepared_index = model_name.to_s
-       
+
         # in order not to depend on order of keys in *:conditions* hash we rather interate over the index itself and find corresponding values in *:conditions* hash
         if index[:name].is_a?(Array)
           index[:name].each do |key|
@@ -190,12 +190,12 @@ module RedisOrm
         else
           prepared_index += ":#{index[:name]}:#{conditions_hash[index[:name]]}"
         end
-              
+
         prepared_index.downcase! if index[:options][:case_insensitive]
-        
+
         prepared_index
       end
-      
+
       # TODO refactor this messy function
       def all(options = {})
         limit = if options[:limit] && options[:offset]
@@ -205,14 +205,14 @@ module RedisOrm
         else
           [0, -1]
         end
-        
+
         order_max_limit = Time.now.to_f
         ids_key = "#{model_name}:ids"
         index = nil
 
         prepared_index = if !options[:conditions].blank? && options[:conditions].is_a?(Hash)
           properties = options[:conditions].collect{|key, value| key}
-          
+
           # if some condition includes object => get only the id of this object
           conds = options[:conditions].inject({}) do |sum, item|
             key, value = item
@@ -224,7 +224,7 @@ module RedisOrm
           end
 
           index = find_indices(properties, :first => true)
-          
+
           raise NotIndexFound if !index
 
           construct_prepared_index(index, conds)
@@ -237,7 +237,7 @@ module RedisOrm
         end
 
         order_by_property_is_string = false
-        
+
         # if not array => created_at native order (in which ids were pushed to "#{model_name}:ids" set by default)
         direction = if !options[:order].blank?
           property = {}
@@ -260,7 +260,7 @@ module RedisOrm
           ids_key = prepared_index
           'asc'
         end
-        
+
         if order_by_property_is_string
           if direction.to_s == 'desc'
             ids_length = $redis.llen(ids_key)
@@ -330,7 +330,7 @@ module RedisOrm
               record = $redis.hgetall "#{model_name}:#{id}"
               record && record.empty? ? nil : new(record, id, true)
           end
-        end        
+        end
       end
 
       def find!(*args)
@@ -341,16 +341,16 @@ module RedisOrm
           result
         end
       end
-      
-      def after_save(callback)        
+
+      def after_save(callback)
         @@callbacks[model_name][:after_save] << callback
       end
 
-      def before_save(callback)        
+      def before_save(callback)
         @@callbacks[model_name][:before_save] << callback
       end
 
-      def after_create(callback)        
+      def after_create(callback)
         @@callbacks[model_name][:after_create] << callback
       end
 
@@ -361,8 +361,8 @@ module RedisOrm
       def after_destroy(callback)
         @@callbacks[model_name][:after_destroy] << callback
       end
-      
-      def before_destroy(callback)        
+
+      def before_destroy(callback)
         @@callbacks[model_name][:before_destroy] << callback
       end
 
@@ -376,49 +376,49 @@ module RedisOrm
             obj.send("#{k}=", v)
           end
         end
-        
+
         $redis.expire(obj.__redis_record_key, options[:expire_in].to_i) if !options[:expire_in].blank?
 
         obj
-      end      
-      
+      end
+
       alias :create! :create
-      
+
       # dynamic finders
       def method_missing(method_name, *args, &block)
         if method_name =~ /^find_(all_)?by_(\w*)/
-          
+
           index = if $2
             properties = $2.split('_and_')
             raise ArgumentsMismatch if properties.size != args.size
             properties_hash = {}
-            properties.each_with_index do |prop, i| 
+            properties.each_with_index do |prop, i|
               properties_hash.merge!({prop.to_sym => args[i]})
             end
             find_indices(properties, :first => true)
           end
 
           raise NotIndexFound if !index
-          
+
           prepared_index = construct_prepared_index(index, properties_hash)
 
           if method_name =~ /^find_by_(\w*)/
-            id = if index[:options][:unique]            
+            id = if index[:options][:unique]
               $redis.get prepared_index
             else
               $redis.zrangebyscore(prepared_index, 0, Time.now.to_f, :limit => [0, 1])[0]
             end
             model_name.to_s.camelize.constantize.find(id)
           elsif method_name =~ /^find_all_by_(\w*)/
-            records = []          
+            records = []
 
-            if index[:options][:unique]            
+            if index[:options][:unique]
               id = $redis.get prepared_index
               records << model_name.to_s.camelize.constantize.find(id)
             else
               ids = $redis.zrangebyscore(prepared_index, 0, Time.now.to_f)
               records += model_name.to_s.camelize.constantize.find(ids)
-            end          
+            end
 
             records
           else
@@ -433,11 +433,11 @@ module RedisOrm
     def to_a
       [self]
     end
- 
+
     def __redis_record_key
       "#{model_name}:#{id}"
     end
-   
+
     def set_expire_on_reference_key(key)
       class_expire = @@expire[model_name]
 
@@ -447,13 +447,13 @@ module RedisOrm
 
         if class_expire[:options][:if] && class_expire[:options][:if].class == Proc
           # *self* here refers to the instance of class which has_one association
-          set_expire = class_expire[:options][:if][self]  # invoking specified *:if* Proc with current record as *self* 
+          set_expire = class_expire[:options][:if][self]  # invoking specified *:if* Proc with current record as *self*
         end
 
         $redis.expire(key, class_expire[:seconds].to_i) if set_expire
       end
     end
-   
+
     # is called from RedisOrm::Associations::HasMany to save backlinks to saved records
     def get_associations
       @@associations[self.model_name]
@@ -463,7 +463,7 @@ module RedisOrm
     def get_indices
       @@indices[self.model_name]
     end
-    
+
     def initialize(attributes = {}, id = nil, persisted = false)
       @persisted = persisted
 
@@ -484,10 +484,10 @@ module RedisOrm
       # cast all attributes' keys to symbols
       attributes = attributes.inject({}){|sum, el| sum.merge({el[0].to_sym => el[1]})} if attributes.is_a?(Hash)
 
-      # get all names of properties to assign only those attributes from attributes hash whose key are in prop_names 
-      # we're not using *self.respond_to?("#{key}=".to_sym)* since *belongs_to* and other assocs could create their own methods 
+      # get all names of properties to assign only those attributes from attributes hash whose key are in prop_names
+      # we're not using *self.respond_to?("#{key}=".to_sym)* since *belongs_to* and other assocs could create their own methods
       # with *key=* name, that in turn will mess up indices
-      if attributes.is_a?(Hash) && !attributes.empty?        
+      if attributes.is_a?(Hash) && !attributes.empty?
         @@properties[model_name].each do |property|
           if !(value = attributes[property[:name]]).nil? # check for nil because we want to pass falses too (and value could be 'false')
             value = Marshal.load(value) if ["Array", "Hash"].include?(property[:class]) && value.is_a?(String)
@@ -503,7 +503,7 @@ module RedisOrm
     end
 
     alias :to_key :id
-    
+
     def to_s
       inspected = "<#{model_name.capitalize} id: #{@id}, "
       inspected += @@properties[model_name].inject([]) do |sum, prop|
@@ -515,7 +515,7 @@ module RedisOrm
       inspected += ">"
       inspected
     end
-    
+
     def ==(other)
       raise "this object could be comparable only with object of the same class" if other.class != self.class
       same = true
@@ -526,7 +526,7 @@ module RedisOrm
       same = false if self.id != other.id
       same
     end
-    
+
     def persisted?
       @persisted
     end
@@ -537,21 +537,21 @@ module RedisOrm
       else
         $redis.incr("#{model_name}:id")
       end
-    end    
-    
+    end
+
     def save
       return false if !valid?
 
       _check_mismatched_types_for_values
-      
+
       # store here initial persisted flag so we could invoke :after_create callbacks in the end of *save* function
       was_persisted = persisted?
 
       if persisted? # then there might be old indices
         _check_indices_for_persisted # remove old indices if needed
-      else # !persisted?        
+      else # !persisted?
         @@callbacks[model_name][:before_create].each{ |callback| self.send(callback) }
- 
+
         @id = get_next_id
         $redis.zadd "#{model_name}:ids", Time.now.to_f, @id
         @persisted = true
@@ -579,7 +579,7 @@ module RedisOrm
       end_index = $redis.llen(sortable_key)
 
       return 0 if end_index == 0
-      
+
       start_index = 0
       pivot_index = end_index / 2
 
@@ -591,7 +591,7 @@ module RedisOrm
         # aa..ab..ac..bd <- ad
         if start_el.split(':').first > value # Michael > Abe
           return 0
-        elsif end_el.split(':').first < value # Abe < Todd 
+        elsif end_el.split(':').first < value # Abe < Todd
           return end_el
         elsif start_el.split(':').first == value # Abe == Abe
           return start_el
@@ -607,7 +607,7 @@ module RedisOrm
         elsif (pivot_el.split(':').first < value) && (end_el.split(':').first > value) # M < V && Y > V
           start_index = pivot_index
           pivot_index = pivot_index + ((end_index - pivot_index) / 2)
-          end_index   = end_index          
+          end_index   = end_index
         end
         start_el = $redis.lindex(sortable_key, start_index)
         end_el   = $redis.lindex(sortable_key, end_index - 1)
@@ -615,7 +615,7 @@ module RedisOrm
       end
       start_el
     end
-    
+
     def update_attributes(attributes)
       if attributes.is_a?(Hash)
         attributes.each do |key, value|
@@ -638,7 +638,7 @@ module RedisOrm
       @@properties[model_name].each do |prop|
         property_value = instance_variable_get(:"@#{prop[:name]}").to_s
         $redis.hdel("#{model_name}:#{@id}", prop[:name].to_s)
-        
+
         if prop[:options][:sortable]
           if prop[:class].eql?("String")
             $redis.lrem "#{model_name}:#{prop[:name]}_ids", 1, "#{property_value}:#{@id}"
@@ -652,11 +652,11 @@ module RedisOrm
 
       # also we need to delete *indices* of associated records
       if !@@associations[model_name].empty?
-        @@associations[model_name].each do |assoc|        
+        @@associations[model_name].each do |assoc|
           if :belongs_to == assoc[:type]
             # if assoc has :as option
             foreign_model_name = assoc[:options][:as] ? assoc[:options][:as].to_sym : assoc[:foreign_model].to_sym
-            
+
             if !self.send(foreign_model_name).nil?
               @@indices[model_name].each do |index|
                 keys_to_delete = if index[:name].is_a?(Array)
@@ -665,7 +665,7 @@ module RedisOrm
                 else
                   ["#{foreign_model_name}:#{self.send(foreign_model_name).id}:#{model_name.to_s.pluralize}:#{index[:name]}:#{self.send(index[:name])}"]
                 end
-                keys_to_delete.each do |key| 
+                keys_to_delete.each do |key|
                   index[:options][:unique] ? $redis.del(key) : $redis.zrem(key, @id)
                 end
               end
@@ -673,7 +673,7 @@ module RedisOrm
           end
         end
       end
-      
+
       # also we need to delete *links* to associated records
       if !@@associations[model_name].empty?
         @@associations[model_name].each do |assoc|
@@ -706,7 +706,7 @@ module RedisOrm
               foreign_models_name = assoc[:options][:as] ? assoc[:options][:as] : assoc[:foreign_models]
               records += self.send(foreign_models_name)
 
-              # delete all members             
+              # delete all members
               $redis.zremrangebyscore "#{model_name}:#{@id}:#{assoc[:foreign_models]}", 0, Time.now.to_f
           end
 
@@ -759,19 +759,19 @@ module RedisOrm
 
       true # if there were no errors just return true, so *if* conditions would work
     end
-    
+
   protected
     def _construct_prepared_index(index)
       prepared_index = if index[:name].is_a?(Array) # TODO sort alphabetically
         index[:name].inject([model_name]) do |sum, index_part|
           sum += [index_part, self.instance_variable_get(:"@#{index_part}")]
-        end.join(':')          
+        end.join(':')
       else
         [model_name, index[:name], self.instance_variable_get(:"@#{index[:name]}")].join(':')
       end
-      
+
       prepared_index.downcase! if index[:options][:case_insensitive]
-      
+
       prepared_index
     end
 
@@ -779,19 +779,20 @@ module RedisOrm
       # an exception should be raised before all saving procedures if wrong value type is specified (especcially true for Arrays and Hashes)
       @@properties[model_name].each do |prop|
         prop_value = self.send(prop[:name].to_sym)
-        
-        if prop_value && prop[:class] != prop_value.class.to_s && ['Array', 'Hash'].include?(prop[:class].to_s)
-          raise TypeMismatchError 
+
+        #if prop_value && prop[:class] != prop_value.class.to_s && ['Array', 'Hash'].include?(prop[:class].to_s)
+        if prop_value && prop[:class] != prop_value.class.to_s
+          raise TypeMismatchError
         end
       end
     end
-    
+
     def _check_indices_for_persisted
       # check whether there's old indices exists and if yes - delete them
       @@properties[model_name].each do |prop|
         # if there were no changes for current property skip it (indices remains the same)
         next if ! self.send(:"#{prop[:name]}_changed?")
-        
+
         prev_prop_value = instance_variable_get(:"@#{prop[:name]}_changes").first
         prop_value = instance_variable_get(:"@#{prop[:name]}")
         # TODO DRY in destroy also
@@ -872,11 +873,11 @@ module RedisOrm
         end
       end
     end
-      
+
     def _save_to_redis
       @@properties[model_name].each do |prop|
         prop_value = self.send(prop[:name].to_sym)
-        
+
         if prop_value.nil? && !prop[:options][:default].nil?
           prop_value = prop[:options][:default]
 
@@ -904,7 +905,7 @@ module RedisOrm
           instance_variable_set :"@#{prop[:name]}_changes", [prop_value]
         end
 
-        # serialize array- and hash-type properties 
+        # serialize array- and hash-type properties
         if ['Array', 'Hash'].include?(prop[:class]) && !prop_value.is_a?(String)
           prop_value = Marshal.dump(prop_value)
         end
@@ -913,14 +914,14 @@ module RedisOrm
         $redis.hset(__redis_record_key, prop[:name].to_s, prop_value)
 
         set_expire_on_reference_key(__redis_record_key)
-        
+
         # reducing @#{prop[:name]}_changes array to the last value
         prop_changes = instance_variable_get :"@#{prop[:name]}_changes"
 
         if prop_changes && prop_changes.size > 2
           instance_variable_set :"@#{prop[:name]}_changes", [prop_changes.last]
         end
-        
+
         # if some property need to be sortable add id of the record to the appropriate sorted set
         if prop[:options][:sortable]
           property_value = instance_variable_get(:"@#{prop[:name]}").to_s
